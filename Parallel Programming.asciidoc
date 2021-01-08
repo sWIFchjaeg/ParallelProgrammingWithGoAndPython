@@ -1,0 +1,493 @@
+= Parallel Programming: Comparison of Go and Python
+Christian Jäger
+08.01.2020
+:toc:
+:icons: font
+:quick-uri: https://asciidoctor.org/docs/asciidoc-syntax-quick-reference/
+
+== Introduction
+
+Today is the age of multi-core CPUs and networks that are being accessed by many users simultaneously. All of this requires parallel programming. Parallel programming saves time compared to regular programming. Two languages that support parallel programming are Go and Python. The goal of this paper is the comparison of Go with Python in terms of parallel programming.
+
+== Parallel Programming in Go
+
+=== Goroutines
+
+Go uses goroutines. A goroutine is an independently executing function, launched by a go statement. Every goroutine has its own call stack that can grow and shrink as required. Goroutines can be thought of as very cheap threads, there can be thousands of goroutines in a Go program.
+
+Any function can be executed concurrently by just adding the go keyword in front of it. This way, there is no need to wait for that function to finish.
+
+Take this code, for example:
+
+....
+package main
+
+import "fmt"
+import "time"
+	
+func say(s string) {
+	for i := 0; i < 5; i++ {
+	  fmt.Println(s)
+	  time.Sleep(1000 * time.Millisecond)
+	}
+}
+  
+func main() {
+	say("firstFunction")
+	say("secondFunction")
+  }
+....
+
+After it printed the first "firstFunction", during its time.Sleep(), it does *not* continue with the say("secondFunction"), but rather waits for say("firstFunction") to finish. So the output is this:
+
+....
+firstFunction
+firstFunction
+firstFunction
+firstFunction
+firstFunction
+secondFunction
+secondFunction
+secondFunction
+secondFunction
+secondFunction
+....
+
+But now let's use the go keyword:
+
+....
+package main
+
+import "fmt"
+import "time"
+	
+func say(s string) {
+	for i := 0; i < 5; i++ {
+	  fmt.Println(s)
+	  time.Sleep(1000 * time.Millisecond)
+	}
+}
+  
+func main() {
+	go say("firstFunction")
+	say("secondFunction")
+  }
+....
+
+Now it does *not* wait for say("firstFunction") to finish, but rather immediately continues with the say("secondFunction"), which makes the two functions run concurrently. Now the output is this:
+
+....
+secondFunction
+firstFunction
+secondFunction
+firstFunction
+secondFunction
+firstFunction
+secondFunction
+firstFunction
+secondFunction
+firstFunction
+....
+
+
+=== Channels
+
+Goroutines can communicate via channels. It is possible to both send and receive messages. The following code sends the value v to channel ch:
+
+....
+ch <- v
+....
+
+And the following code receives a value from channel ch and assigns it to v:
+
+....
+v := <-ch
+....
+
+There are two kinds of channels: unbuffered channels and buffered ones.
+
+Unbuffered channels only deal with one value at a time. It is impossible to send values if a value is already present on the channel. The following code creates an unbuffered int-channel ch.
+....
+ch := make(chan int)
+....
+
+Buffered channels on the other hand can store a certain amount of values. They only start blocking once this number is exceeded. The following code creates an int-channel ch with a buffer of 10 values:
+
+....
+ch := make(chan int, 10)
+....
+
+=== Select Statement
+
+It is possible to wait for multiple send or receive operations simultaneously with an select statement. The select statement blocks until one of the operations becomes unblocked. If more than one operation becomes unblocked, then it chooses one at random. If none of the operations are ready, then it blocks until one becomes ready.
+
+The following code has two Go functions that fire once every 1 second in channel 1 and once every 5 seconds in channel 2. That select statement waits for either of them to fire and then prints out their respective messages. If *none* of them fire, then the select statements blocks. In the case that *both* of them fire simultaneously (which could theoretically happen every 5 seconds), then the select statement just randomly chooses one to print out first.
+
+....
+package main
+
+import "fmt"
+import "time"
+
+func main() {
+  c1 := make(chan string)
+  c2 := make(chan string)
+
+  go func() {
+    for {
+      c1 <- "every 1 second"
+      time.Sleep(time.Second * 1)
+    }
+  }()
+
+  go func() {
+    for {
+      c2 <- "every 5 seconds"
+      time.Sleep(time.Second * 5)
+    }
+  }()
+
+  go func() {
+    for {
+      select {
+      case msg1 := <- c1:
+        fmt.Println("channel 1 sends", msg1)
+      case msg2 := <- c2:
+        fmt.Println("channel 2 sends", msg2)
+      }
+    }
+  }()
+
+  var input string
+  fmt.Scanln(&input)
+}
+....
+
+The output is as follows:
+
+....
+channel 1 sends every 1 second
+channel 2 sends every 5 seconds
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 2 sends every 5 seconds
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 1 sends every 1 second
+channel 2 sends every 5 seconds
+...
+....
+
+
+== Parallel Programming in Python
+
+The following code executes a CPU-heavy function 20 times in a sequential way. On this laptop it takes approximately 14 seconds to completely execute it. This sequential approach will be compared to multiple parallel approaches.
+
+....
+import time
+
+
+def heavy(n, myid):
+    for x in range(1, n):
+        for y in range(1, n):
+            x ** y
+    print(myid, "is done")
+
+
+def sequential(n):
+    for i in range(n):
+        heavy(500, i)
+
+
+if __name__ == "__main__":
+    start = time.time()
+    sequential(20)
+    end = time.time()
+    print("Took: ", end - start)
+....
+
+=== Multithreading in Python
+
+In python, one possibility of parallel programming is multithreading.
+
+....
+x = threading.Thread(target=thread_function, args=(1,))
+x.start()
+....
+
+The first line creates a new thread. thread_function is the function that gets passed to the thread and 1 is also passed as an argument. The second line starts the thread by calling the start()-function.
+
+Coming back to the previous example, it is now implemented with multithreading. On this laptop it *still* takes approximately the same time as the sequential version. Why is that?
+
+....
+import threading
+import time
+
+
+def heavy(n, myid):
+    for x in range(1, n):
+        for y in range(1, n):
+            x ** y
+    print(myid, "is done")
+
+
+def threaded(n):
+    threads = []
+
+    for i in range(n):
+        t = threading.Thread(target=heavy, args=(500, i,))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+
+start = time.time()
+threaded(20)
+end = time.time()
+print("Took: ", end - start)
+....
+
+=== Global Interpreter Lock
+
+The reason why there's no change in speed is the Global Interpreter Lock. It ensures that only one thread can be executed at any given time, even on multi-core computers. CPython's memory management is not thread-safe.
+
+Race conditions can occur if multiple threads change shared data at the same time. If there are multiple threads running, then it is unclear in what order they will execute their actions. Let's take a variable v:
+
+....
+v = 4
+....
+
+And two threads thread1 and thread2:
+
+....
+thread1: v = v + 4
+thread2: v = v * 2
+....
+
+If thread1 gets to act first:
+
+....
+v = 4 + 4 // = 8
+v = 8 * 2 // = 16
+....
+
+But if thread2 gets to act first:
+
+....
+v = 4 * 2 // = 8
+v = 8 + 4 // = 12
+....
+
+This is why the Global Interpreter Lock makes sure that there aren't any race conditions. However, at the same time, it also dramatically reduces the speed advantage of multithreading.
+
+It is not easy to disable the Global Interpreter Lock, because other libraries and packages depend on it. There are other Python implementations like Jython and IronPython that have no Global Interpreter Lock, but some libraries might not work with them. However, there is a way avoid the Global Interpreter Lock even in CPython: multiprocessing. 
+
+=== Multiprocessing in Python
+
+In multiprocessing every process has its own interpreter, therefore the issue with the Global Interpreter Lock doesn't arise. The syntax for multiprocessing is very similar to multithreading:
+
+....
+x = multiprocessing.Process(target=thread_function, args=(1,))
+x.start()
+....
+
+The first line creates a new process. thread_function is the function that gets passed to the process and 1 is also passed as an argument. The second line starts the process by calling the start()-function.
+
+Now let's use multiprocessing in the previous example:
+
+....
+import time
+import multiprocessing
+
+
+def heavy(n, myid):
+    for x in range(1, n):
+        for y in range(1, n):
+            x ** y
+    print(myid, "is done")
+
+
+def multiproc(n):
+    processes = []
+
+    for i in range(n):
+        p = multiprocessing.Process(target=heavy, args=(500, i,))
+        processes.append(p)
+        p.start()
+
+    for p in processes:
+        p.join()
+
+
+if __name__ == "__main__":
+    start = time.time()
+    multiproc(20)
+    end = time.time()
+    print("Took: ", end - start)
+....
+
+On this laptop it now only takes about 3 seconds, which is much faster than the usual 14 seconds. The difference is approximately 4 times, which makes sense considering that this laptop has a quad-core CPU. So multiprocessing actually *does* work compared to multithreading.
+
+=== I/O-bound operations
+
+So far, only CPU-bound operations have been discussed, but there are also I/O-bound operations. An example of I/O-bound operations would be loading data from the hard disk drive or network requests. In these cases it would be okay to use multithreading. Take this example, where the CPU-heavy function has been replaced by a time.sleep(), simulating an I/O-bound operation:
+
+....
+import threading
+import time
+
+
+def heavy(n, myid):
+    time.sleep(2)
+    print(myid, "is done")
+
+
+def threaded(n):
+    threads = []
+
+    for i in range(n):
+        t = threading.Thread(target=heavy, args=(500, i,))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+
+if __name__ == "__main__":
+    start = time.time()
+    threaded(80)
+    end = time.time()
+    print("Took: ", end - start)
+
+....
+
+On this laptop it takes about 2 seconds, so for I/O-bound operations multithreading *does* work. Let's compare it to the multiprocessing version:
+
+....
+import multiprocessing
+import time
+
+
+def heavy(n, myid):
+    time.sleep(2)
+    print(myid, "is done")
+
+
+def multiproc(n):
+    processes = []
+
+    for i in range(n):
+        p = multiprocessing.Process(target=heavy, args=(500, i,))
+        processes.append(p)
+        p.start()
+
+    for p in processes:
+        p.join()
+
+
+if __name__ == "__main__":
+    start = time.time()
+    multiproc(80)
+    end = time.time()
+    print("Took: ", end - start)
+
+....
+
+On this laptop it takes about *4* seconds, which means that multiprocessing is now surprisingly *slower* than multithreading. The reason for this is that the overhead caused by creating new processes is higher than the overhead caused by creating new threads.
+
+=== Select Statements in Python
+
+Go-like Select Statements aren't natively supported by Python. However, they can be simulated by this code:
+
+....
+import threading
+import queue
+import time
+
+
+def main():
+    c1 = queue.Queue(maxsize=0)
+    c2 = queue.Queue(maxsize=0)
+
+    def func1():
+        while 1 == 1:
+            c1.put("every 1 second")
+            time.sleep(1)
+
+    threading.Thread(target=func1).start()
+
+    def func2():
+        while 1 == 1:
+            c2.put("every 5 seconds")
+            time.sleep(5)
+
+    threading.Thread(target=func2).start()
+
+    combined = queue.Queue(maxsize=0)
+
+    def listen_and_forward(queue):
+        while True:
+            combined.put((queue, queue.get()))
+
+    t = threading.Thread(target=listen_and_forward, args=(c1,))
+    t.daemon = True
+    t.start()
+    t = threading.Thread(target=listen_and_forward, args=(c2,))
+    t.daemon = True
+    t.start()
+
+    while True:
+        which, message = combined.get()
+        if which is c1:
+            print('every 1 second channel')
+        elif which is c2:
+            print('every 5 seconds channel')
+
+
+main()
+....
+
+== Summary of differences between Go and Python
+
+Concurrency is pretty easy for Go. For almost all situations, Goroutines are the way to go. They are cheap, but at the same time very efficient. They can communicate via channels. Go also has a feature called Select which waits for multiple send or receive operations simultaneously.
+
+Concurrency is much more difficult for Python. When it comes to CPU-heavy operations, then multithreading offers no advantage over the sequential version. The reason for this is the Global Interpreter Lock. In order to avoid race conditions, the GIL ensures that only one thread can be executed at any given time.
+
+However, there *is* a way to speed up CPU-heavy operations in Python: Multiprocessing. In multiprocessing every process has its own interpreter, therefore the issue with the Global Interpreter Lock doesn't arise.
+
+But there are also I/O-bound operations, e.g. loading data from the hard disk drive or network requests. In these cases multithreading *can* be used and is actually *faster* than multiprocessing. That's because the overhead caused by creating new processes is higher than the overhead caused by creating new threads.
+
+So to sum it up, in Python multiprocessing should be used in CPU-heavy operations and multithreading should be used in I/O-bound operations.
+
+Go-like Select Statements aren't natively supported by Python, but they can be simulated.
+
+== Sources
+
+=== Go
+
+http://www.golangbootcamp.com/book/concurrency
+
+https://levelup.gitconnected.com/goroutines-and-channels-concurrent-programming-in-go-9f9f8495c34d
+
+https://yourbasic.org/golang/concurrent-programming/
+
+https://www.golang-book.com/books/intro/10
+
+=== Python
+
+https://hackernoon.com/concurrent-programming-in-python-is-not-what-you-think-it-is-b6439c3f3e6a
+
+https://realpython.com/python-concurrency/
+
+https://medium.com/fintechexplained/advanced-python-concurrency-and-parallelism-82e378f26ced
+
+https://towardsdatascience.com/concurrency-in-python-e770c878ab53
+
+https://realpython.com/intro-to-python-threading/
